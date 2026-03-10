@@ -40,4 +40,4 @@ fi
 
 DOCKER_GID="${DOCKER_GID}" AWSCLI_ARCH="${AWSCLI_ARCH}" docker compose -f main/docker-compose.yml up --build -d
 
-docker exec -it infranettone-aws-ec2-deployer time bash main/run.sh
+time docker exec -it infranettone-aws-ec2-deployer bash main/run.sh

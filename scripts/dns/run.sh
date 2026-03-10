@@ -23,7 +23,7 @@ echo -e "${GREEN}End of block Would you like to create a DNS record?${NC}"
 echo -e "${CYAN}Start of block If the user wants to create a DNS record, ask for the necessary information and create it.${NC}"
 if [[ "$CREATE_DNS_RECORD" == "Yes" ]]; then
     while true; do
-        read -p "Enter the domain name: " DOMAIN_NAME
+        read -p "Enter the domain name (e.g., test.example.com): " DOMAIN_NAME
 
         echo
         echo -e "${YELLOW}You entered the name:${NC} ${DOMAIN_NAME}"
@@ -102,16 +102,38 @@ if [[ "$CREATE_DNS_RECORD" == "Yes" && -n "${DOMAIN_NAME:-}" ]]; then
         DNS_SLEEP_SECONDS=5
         TARGET_PUBLIC_IP="$(tr -d '\r' <<< "${PUBLIC_IP}" | xargs)"
         TARGET_DOMAIN_NAME="$(tr -d '\r' <<< "${DOMAIN_NAME}" | xargs)"
+        TARGET_BASE_DOMAIN="$(tr -d '\r' <<< "${BASE_DOMAIN}" | xargs)"
+        AUTHORITATIVE_NS=""
+
+        if command -v dig >/dev/null 2>&1; then
+            AUTHORITATIVE_NS="$(
+                dig +short NS "${TARGET_BASE_DOMAIN}" 2>/dev/null \
+                    | tr -d '\r' \
+                    | sed 's/\.$//' \
+                    | awk 'NF {print; exit}' \
+                    || true
+            )"
+        fi
 
         for ((attempt=1; attempt<=DNS_MAX_ATTEMPTS; attempt++)); do
             RESOLVED_IPS="$(
                 {
                     if command -v dig >/dev/null 2>&1; then
-                        # Try system resolver first, then a public resolver as a fallback.
+                        # Use system/public resolvers and, when possible, an authoritative NS.
                         dig +short "${TARGET_DOMAIN_NAME}" A 2>/dev/null || true
                         dig +short "${TARGET_DOMAIN_NAME}" A @1.1.1.1 2>/dev/null || true
+                        dig +short "${TARGET_DOMAIN_NAME}" A @8.8.8.8 2>/dev/null || true
+                        if [[ -n "${AUTHORITATIVE_NS}" ]]; then
+                            dig +short "${TARGET_DOMAIN_NAME}" A @"${AUTHORITATIVE_NS}" 2>/dev/null || true
+                        fi
                     fi
-                    getent ahostsv4 "${TARGET_DOMAIN_NAME}" 2>/dev/null | awk '{print $1}' || true
+                    if command -v getent >/dev/null 2>&1; then
+                        getent ahostsv4 "${TARGET_DOMAIN_NAME}" 2>/dev/null | awk '{print $1}' || true
+                        getent hosts "${TARGET_DOMAIN_NAME}" 2>/dev/null | awk '{print $1}' || true
+                    fi
+                    if command -v host >/dev/null 2>&1; then
+                        host -t A "${TARGET_DOMAIN_NAME}" 2>/dev/null | awk '/ has address /{print $NF}' || true
+                    fi
                 } \
                     | tr -d '\r' \
                     | awk '/^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$/' \
@@ -137,9 +159,12 @@ if [[ "$CREATE_DNS_RECORD" == "Yes" && -n "${DOMAIN_NAME:-}" ]]; then
             else
                 echo "No A records resolved yet."
             fi
+            if [[ -n "${AUTHORITATIVE_NS}" ]]; then
+                echo "Authoritative NS checked: ${AUTHORITATIVE_NS}"
+            fi
         fi
     fi
-    echo -e "${GREEN}End of block Ensure that the DNS has propagated by checking if the domain resolves to the public IP. Use dig or getent in a loop with a timeout.${NC}"
+    echo -e "${CYAN}End of block Ensure that the DNS has propagated by checking if the domain resolves to the public IP. Use dig or getent in a loop with a timeout.${NC}"
     # End of block If the user wants to create a DNS record and has provided a domain name, create the DNS record pointing to the public IP.
 fi
 echo -e "${CYAN}End of block If the user wants to create a DNS record and has provided a domain name, create the DNS record pointing to the public IP.${NC}"
