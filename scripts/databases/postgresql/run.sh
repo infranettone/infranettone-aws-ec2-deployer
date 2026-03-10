@@ -54,9 +54,13 @@ echo -e "${CYAN}End of block Set a password for the infranettone database user.$
 
 # Start of block Create and configure PostgreSQL database.
 echo -e "${CYAN}Start of block Create and configure PostgreSQL database.${NC}"
+POSTGRES_CONNECTION_PASSWORD="${POSTGRES_PASSWORD:-${POSTGRES_REMOTE_PASSWORD:-}}"
+if [[ -z "${POSTGRES_CONNECTION_PASSWORD}" ]]; then
+  echo "⚠️ POSTGRES_PASSWORD is not set. Trying connection without password."
+fi
 docker run --rm \
   -i \
-  -e PGPASSWORD="$POSTGRES_PASSWORD" \
+  -e PGPASSWORD="${POSTGRES_CONNECTION_PASSWORD}" \
   -e INFRANETTONE_PASSWORD="${INFRANETTONE_PASSWORD}" \
   alpine/psql:latest \
   -h "$PUBLIC_IP" \

@@ -72,9 +72,34 @@ else
 fi
 
 echo "▶ Añadiendo rol al instance profile..."
-aws iam add-role-to-instance-profile \
+CURRENT_PROFILE_ROLES="$(aws iam get-instance-profile \
   --instance-profile-name "$INSTANCE_PROFILE_NAME" \
-  --role-name "$ROLE_NAME" || true
+  --query 'InstanceProfile.Roles[].RoleName' \
+  --output text 2>/dev/null || true)"
+
+if echo "$CURRENT_PROFILE_ROLES" | tr '\t' '\n' | grep -Fxq "$ROLE_NAME"; then
+  echo "✔ El rol ya está asociado al instance profile"
+elif [[ -n "${CURRENT_PROFILE_ROLES//[[:space:]]/}" ]]; then
+  # IAM solo permite 1 rol por instance profile.
+  echo "⚠ Instance profile ya tiene otro rol asociado (${CURRENT_PROFILE_ROLES}); se omite add-role (esperado)."
+else
+  ADD_ROLE_OUTPUT="$(
+    aws iam add-role-to-instance-profile \
+      --instance-profile-name "$INSTANCE_PROFILE_NAME" \
+      --role-name "$ROLE_NAME" \
+      2>&1
+  )" || ADD_ROLE_EXIT=$?
+
+  ADD_ROLE_EXIT="${ADD_ROLE_EXIT:-0}"
+  if [[ "$ADD_ROLE_EXIT" -ne 0 ]]; then
+    if grep -q "LimitExceeded" <<< "$ADD_ROLE_OUTPUT"; then
+      echo "⚠ AddRoleToInstanceProfile devolvió LimitExceeded; se continúa (esperado)."
+    else
+      echo "$ADD_ROLE_OUTPUT" >&2
+      exit "$ADD_ROLE_EXIT"
+    fi
+  fi
+fi
 
 echo "⏳ Esperando a que el instance profile esté disponible..."
 

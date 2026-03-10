@@ -100,17 +100,27 @@ if [[ "$CREATE_DNS_RECORD" == "Yes" && -n "${DOMAIN_NAME:-}" ]]; then
         DNS_PROPAGATED="false"
         DNS_MAX_ATTEMPTS=24
         DNS_SLEEP_SECONDS=5
+        TARGET_PUBLIC_IP="$(tr -d '\r' <<< "${PUBLIC_IP}" | xargs)"
+        TARGET_DOMAIN_NAME="$(tr -d '\r' <<< "${DOMAIN_NAME}" | xargs)"
 
         for ((attempt=1; attempt<=DNS_MAX_ATTEMPTS; attempt++)); do
-            if command -v dig >/dev/null 2>&1; then
-                RESOLVED_IPS=$(dig +short "${DOMAIN_NAME}" A @1.1.1.1 | tr -d '\r')
-            else
-                RESOLVED_IPS=$(getent ahostsv4 "${DOMAIN_NAME}" 2>/dev/null | awk '{print $1}' | sort -u)
-            fi
+            RESOLVED_IPS="$(
+                {
+                    if command -v dig >/dev/null 2>&1; then
+                        # Try system resolver first, then a public resolver as a fallback.
+                        dig +short "${TARGET_DOMAIN_NAME}" A 2>/dev/null || true
+                        dig +short "${TARGET_DOMAIN_NAME}" A @1.1.1.1 2>/dev/null || true
+                    fi
+                    getent ahostsv4 "${TARGET_DOMAIN_NAME}" 2>/dev/null | awk '{print $1}' || true
+                } \
+                    | tr -d '\r' \
+                    | awk '/^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$/' \
+                    | sort -u
+            )"
 
-            if grep -qx "${PUBLIC_IP}" <<< "${RESOLVED_IPS}"; then
+            if grep -Fxq "${TARGET_PUBLIC_IP}" <<< "${RESOLVED_IPS}"; then
                 DNS_PROPAGATED="true"
-                echo -e "${GREEN}DNS propagated successfully: ${DOMAIN_NAME} -> ${PUBLIC_IP}${NC}"
+                echo -e "${GREEN}DNS propagated successfully: ${TARGET_DOMAIN_NAME} -> ${TARGET_PUBLIC_IP}${NC}"
                 break
             fi
 
